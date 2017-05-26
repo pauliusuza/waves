@@ -1,0 +1,146 @@
+Quick Overview:
+
+This will create a self-healing/scaling waves node. Perfect for apps that 
+integrate with the Waves blockchain and need a reliable API.
+
+In effect, this will create waves node inside a region. If one AZ fails, or the
+instance does, the auto scaler will replace it.
+
+I've made it so that it's flexible and easy for anyone to just provide their
+details and launch.
+
+It backs up the wallet.dat, blockchain.dat and logs to the S3 buckets, every 
+hour, to allow quick uptime of the replacement instances.
+
+This is only tested internally and YMMV, maybe I forgot something below. Be 
+safe, backup often, and for the record: I am not liable for anything that goes
+wrong.
+
+If you make this better, share what you did!
+
+
+@techypaul
+
+
+
+
+
+Instructions - Preparation:
+
+1.  Read all the files first so you know what's going on and what we're talking
+    about.
+
+2.  Create your VPC and public subnets if not already, e.g.
+
+    vpc         172.31.0.0/16
+    eu-west-1a  172.31.48.0/20
+    eu-west-1b  172.31.64.0/20
+    eu-west-1c  172.31.80.0/20
+
+3.  Create an Elastic IP.
+
+4.  Create a Security Group that restricts access as required. My Security Group
+    settings:
+
+    Inbound: 
+      6868  0.0.0.0/0
+      6886  0.0.0.0/0
+      6869  172.31.0.0/16 #API, Inside my VPC only.
+      22    172.31.0.0/16 #SSH, Inside my VPC only.
+    Outbound:
+      All   0.0.0.0/0
+
+5.  Create two AWS S3 buckets in your region, e.g.
+
+    my-waves 
+    my-waves-temp
+
+    Set Object Access "Any authenticated AWS user" as Read/Write. Recommend you
+    enable versioning on the my-waves bucket as you will be able to revert to 
+    old confs and wallets etc. Consider adding policy to move previous versions 
+    to Glacier to save money.
+   
+    Do not do anything with the my-waves-temp bucket (no version control).
+
+    Warning: Obviously if you share your AWS account, you might need to modify 
+    permissions. I won't go into details - you should be aware of what you are 
+    doing here. Keep these buckets just for waves use.
+
+6.  Update the aws-waves.conf. Include the Elastic IP. By default, rest-api is
+    enabled, disable if unwanted. Do not change the file name. Modify to suit 
+    your requirements, but keep ports/files etc as is. I've enabled miner, 
+    matcher and API by default as I think most people would want that. If you
+    disable API, close the API ports on the iptables (see below) and the AWS sg.
+    If using your own conf, ensure you update ports/files to match the supplied
+    conf.
+
+7.  Upload runcron.sh, supervisord.conf, nginx.conf and your aws-waves.conf to 
+    your newly created my-waves bucket. Upload wallet.dat if you have one.
+
+8.  Modify cloudformation-waves.json with any changes to firewalls. As above,
+    my provided defaults are a little too loose for me, and I have a VPN to my
+    inner network and I only want the API accessible internally, so I modify:
+
+    "$IPT -A INPUT -p tcp --dport 22 -m state --state NEW -s 172.31.0.0/16 -j ACCEPT\n",
+    "$IPT -A INPUT -p tcp --dport 6869 -m state --state NEW -s 172.31.0.0/16 -j ACCEPT\n",
+
+
+
+Instructions - Launch and Check:
+
+    You can run the CloudFormation script included from your local machine by
+    installing the AWS CLI and providing your API keys ('aws configure').
+
+    Modify the cloudformation-waves.sh script with all your details from AWS.
+
+    Then, simply 'bash cloudformation-waves.sh' to launch!
+
+    Alternatively, you can upload the cloudformation-waves.json file to the
+    CloudFormation service within AWS. Click to create a new stack, choose
+    'Upload a template to Amazon S3' and select the json file.
+
+    You will then be asked for the various references as documented in the 
+    cloudformation-waves.sh file.
+
+
+
+Instructions - Checking:
+
+    You can log in via SSH and review /var/log/cloud-init-output.log to check 
+    for issues during boot (if this works once, it should always work - errors 
+    with s3 etc will show as bad permissions and not much else can go wrong).
+
+    Use 'cat /var/log/supervisor/waves-out.log' to check all is good with waves
+    itself.
+
+    If you are happy, and do not need SSH again, remember to lock it down within
+    the AWS Security Group you configured (e.g. remove it or make it locked to
+    your home IP).
+
+
+
+
+
+Notes:
+
+    Default Iptables doesn't respond to Pings and default deny everything but
+    what we need open.
+
+    Test it by stopping the running node. It will terminate it and kick off a
+    new one pretty quickly.
+
+    If you're new to AWS, ensure you have a strong password and two factor 
+    authentication enabled. Securely store your SSH key somewhere (but, as said
+    multiple times already, don't leave your SSH port open in your sg, you
+    really won't need it much/at all).
+
+
+
+
+
+Ideas:
+
+   Consider adding rsyslogd to the install and pointing the server logs to an
+   external app like papertrail. I do this and it means I can completely remove
+   the requirement for SSH access, even internally (make sure to include all
+   relevant logs such as supervisord, waves, cloud-init.* etc). 

@@ -1,0 +1,302 @@
+{
+  "Description": "Waves Stack",
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Parameters": {
+    "ElasticIP": {
+      "Description": "Elastic IP for Waves",
+      "Type": "String",
+      "AllowedPattern": "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})",
+      "ConstraintDescription": "must be the full elastic ip"
+    },    
+    "ImageId": {
+      "Description": "AMI ID of the API Lists",
+      "Type": "AWS::EC2::Image::Id",
+      "Default": "ami-70edb016"
+    },
+    "InstanceType": {
+      "Description": "EC2 instance type",
+      "Type": "String",
+      "Default": "t2.small",
+      "AllowedValues": [ "t1.micro", "t2.nano", "t2.micro", "t2.small", "t2.medium", "m1.small", "m1.medium", "m1.large",
+        "m1.xlarge", "m2.xlarge", "m2.2xlarge", "m2.4xlarge", "m3.medium", "m3.large", "m3.xlarge",
+        "m3.2xlarge", "c1.medium", "c1.xlarge", "c3.large", "c3.xlarge", "c3.2xlarge", "c3.4xlarge",
+        "c3.8xlarge", "c4.large", "c4.xlarge", "c4.2xlarge", "c4.4xlarge", "c4.8xlarge", "g2.2xlarge",
+        "r3.large", "r3.xlarge", "r3.2xlarge", "r3.4xlarge", "r3.8xlarge", "i2.xlarge", "i2.2xlarge",
+        "i2.4xlarge", "i2.8xlarge", "d2.xlarge", "d2.2xlarge", "d2.4xlarge", "d2.8xlarge", "hi1.4xlarge",
+        "hs1.8xlarge", "cr1.8xlarge", "cc2.8xlarge", "cg1.4xlarge" ],
+      "ConstraintDescription": "must be a valid EC2 instance type."
+    },
+    "KeyName": {
+      "Description": "Name of an existing EC2 KeyPair to enable SSH access to the instance",
+      "Type": "AWS::EC2::KeyPair::KeyName",
+      "ConstraintDescription": "must be the name of an existing EC2 KeyPair."
+    },
+    "S3WavesBucketName": {
+      "Description": "Name of S3 Waves Bucket",
+      "Type": "String"
+    },
+    "S3WavesTempBucketName": {
+      "Description": "Name of S3 Waves Bucket for Temp Use",
+      "Type": "String"
+    },
+    "WavesJarURL": {
+      "Description": "The Full URL of the Waves JAR",
+      "Type": "String"
+    },
+    "WavesJarFile": {
+      "Description": "The file name of the Waves JAR itself",
+      "Type": "String"
+    },
+    "AvZoneA": {
+      "Description": "ID of the A Zone",
+      "Type": "AWS::EC2::AvailabilityZone::Name"
+    },
+    "AvZoneB": {
+      "Description": "ID of the B Zone",
+      "Type": "AWS::EC2::AvailabilityZone::Name"
+    },
+    "AvZoneC": {
+      "Description": "ID of the C Zone",
+      "Type": "AWS::EC2::AvailabilityZone::Name"
+    },
+    "SubnetPublicA": {
+      "Description": "ID of the Public A Subnet (subnet-????????)",
+      "Type": "AWS::EC2::Subnet::Id"
+    },
+    "SubnetPublicB": {
+      "Description": "ID of the Public B Subnet (subnet-????????)",
+      "Type": "AWS::EC2::Subnet::Id"
+    },
+    "SubnetPublicC": {
+      "Description": "ID of the Public C Subnet (subnet-????????)",
+      "Type": "AWS::EC2::Subnet::Id"
+    },
+    "SecurityGroup" : {
+        "Type": "AWS::EC2::SecurityGroup::Id",
+        "Description" : "The Id of existing security group (sg-????????)"
+    }
+  },
+  "Resources": {
+    "WavesRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [ {
+            "Effect": "Allow",
+            "Principal": {
+              "Service": [ "ec2.amazonaws.com" ]
+            },
+            "Action": [ "sts:AssumeRole" ]
+          } ]
+        },
+        "Path": "/"
+      }
+    },
+    "WavesAccessPolicy": {
+      "Type": "AWS::IAM::Policy",
+      "Properties": {
+        "PolicyName": "WavesAccessPolicy",
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Action": [
+                "ec2:AssociateAddress",
+                "ec2:Describe*"
+              ],
+              "Effect": "Allow",
+              "Resource": "*"
+            },
+            {
+              "Action": [
+                "s3:Get*"
+              ],
+              "Effect": "Allow",
+              "Resource": [
+                { "Fn::Join": [ "", [
+                    "arn:aws:s3:::",
+                    { "Ref": "S3WavesBucketName" }
+                ] ] },
+                { "Fn::Join": [ "", [
+                    "arn:aws:s3:::",
+                    { "Ref": "S3WavesBucketName" },
+                    "/*"
+                ] ] },
+                { "Fn::Join": [ "", [
+                    "arn:aws:s3:::",
+                    { "Ref": "S3WavesTempBucketName" }
+                ] ] },
+                { "Fn::Join": [ "", [
+                    "arn:aws:s3:::",
+                    { "Ref": "S3WavesTempBucketName" },
+                    "/*"
+                ] ] }
+              ]
+            }
+          ]
+        },
+        "Roles": [
+          { "Ref": "WavesRole" }
+        ]
+      }
+    },
+    "WavesInstanceProfile": {
+      "Type": "AWS::IAM::InstanceProfile",
+      "Properties": {
+        "Path": "/",
+        "Roles": [
+          { "Ref": "WavesRole" }
+        ]
+      }
+    },
+    "WavesLaunchConfig": {
+      "Type": "AWS::AutoScaling::LaunchConfiguration",
+      "Properties": {
+        "AssociatePublicIpAddress": "true",
+        "KeyName": { "Ref": "KeyName" },
+        "IamInstanceProfile": { "Ref": "WavesInstanceProfile" },
+        "ImageId": { "Ref": "ImageId" },
+        "InstanceMonitoring": false,
+        "InstanceType": { "Ref": "InstanceType" },
+        "SecurityGroups" : [ { "Ref": "SecurityGroup"} ],
+        "UserData": { "Fn::Base64": { "Fn::Join": [ "", [
+
+
+          "#!/bin/bash\n",
+
+
+          "sudo aws ec2 associate-address --region ",
+          {
+            "Ref":"AWS::Region"
+          },
+          " --instance-id `curl http://169.254.169.254/latest/meta-data/instance-id` --public-ip ",
+          {
+            "Ref":"ElasticIP"
+          },
+          "\n",
+
+
+          "sudo yum -y update\n",
+
+
+          "sudo yum -y install epel-release\n",
+          "sudo yum -y install nginx\n",
+          "sudo aws s3 cp s3://",
+          {
+            "Ref":"S3WavesBucketName"
+          },
+          "/nginx.conf /etc/nginx/nginx.conf\n",
+
+
+          "mkdir -p /root/waves\n",
+          "mkdir -p /root/waves/data\n",
+          "mkdir -p /root/waves/wallet\n",
+          "mkdir -p /root/waves/journal\n",
+          "mkdir -p /root/waves/snapshots\n",
+          "mkdir -p /root/waves/temp\n",
+          "mkdir -p /root/waves/scripts\n",
+
+
+          "cd /root/waves/temp\n",
+          "wget --no-cookies --no-check-certificate --header \"Cookie: gpw_e24=http%3A%2F%2Fwww.oracle.com%2F; oraclelicense=accept-securebackup-cookie\" \"http://download.oracle.com/otn-pub/java/jdk/8u60-b27/jdk-8u60-linux-x64.rpm\"\n",
+          "sudo yum -y localinstall jdk-8u60-linux-x64.rpm\n",
+          "sudo rm /root/waves/temp/jdk-8u60-linux-x64.rpm\n",
+
+
+          "cd /root/waves\n",
+          "wget ",
+          {
+            "Ref":"WavesJarURL"
+          },
+          "\n",
+          "mv ",
+          {
+            "Ref":"WavesJarFile"
+          },
+          " aws-waves.jar",
+          "\n",
+
+
+          "sudo aws s3 cp s3://",
+          {
+            "Ref":"S3WavesBucketName"
+          },
+          "/aws-waves.conf /root/waves/aws-waves.conf\n",
+
+
+          "sudo aws s3 cp s3://",
+          {
+            "Ref":"S3WavesBucketName"
+          },
+          "/wallet.dat /root/waves/wallet/wallet.dat\n",
+
+
+          "sudo aws s3 cp s3://",
+          {
+            "Ref":"S3WavesBucketName"
+          },
+          "/runcron.sh /root/waves/scripts/runcron.sh\n",
+
+
+          "sudo aws s3 cp s3://",
+          {
+            "Ref":"S3WavesTempBucketName"
+          },
+          "/blockchain.dat /root/waves/data/blockchain.dat\n",
+
+
+          "echo '0 * * * * sudo bash /root/waves/scripts/runcron.sh ",
+          {
+            "Ref":"S3WavesBucketName"
+          },
+          " ",
+          {
+            "Ref":"S3WavesTempBucketName"
+          },
+          "' | sudo crontab -u root -\n",
+
+
+          "IPT=\"/sbin/iptables\"\n",
+          "$IPT --flush\n",
+          "$IPT --delete-chain\n",
+          "$IPT -P INPUT DROP\n",
+          "$IPT -P FORWARD DROP\n",
+          "$IPT -P OUTPUT ACCEPT\n",
+          "$IPT -A INPUT -i lo -j ACCEPT\n",
+          "$IPT -A OUTPUT -o lo -j ACCEPT\n",
+          "$IPT -A INPUT -p tcp ! --syn -m state --state NEW -s 0.0.0.0/0 -j DROP\n",
+          "$IPT -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT\n",
+          "$IPT -A INPUT -p tcp --dport 22 -m state --state NEW -s 0.0.0.0/0 -j ACCEPT\n",
+          "$IPT -A INPUT -p tcp --dport 6868 -m state --state NEW -s 0.0.0.0/0 -j ACCEPT\n",
+          "$IPT -A INPUT -p tcp --dport 6886 -m state --state NEW -s 0.0.0.0/0 -j ACCEPT\n",
+          "$IPT -A INPUT -p tcp --dport 6869 -m state --state NEW -s 0.0.0.0/0 -j ACCEPT\n",
+
+
+          "mkdir -p /var/log/supervisor\n",
+          "sudo yum -y install python-setuptools\n",
+          "sudo easy_install supervisor\n",
+          "sudo aws s3 cp s3://",
+          {
+            "Ref":"S3WavesBucketName"
+          },
+          "/supervisord.conf /usr/local/etc/supervisord.conf\n",
+          "sudo /usr/local/bin/supervisord -c /usr/local/etc/supervisord.conf\n",
+
+
+        ] ] } }
+      }
+    },
+    "WavesGroup": {
+      "Type": "AWS::AutoScaling::AutoScalingGroup",
+      "Properties": {
+        "AvailabilityZones": [ { "Ref": "AvZoneA" }, { "Ref": "AvZoneB" }, { "Ref": "AvZoneC" } ],
+        "DesiredCapacity": "1",
+        "LaunchConfigurationName": { "Ref": "WavesLaunchConfig" },
+        "MaxSize": "2",
+        "MinSize": "1",
+        "VPCZoneIdentifier": [ { "Ref": "SubnetPublicA" }, { "Ref": "SubnetPublicB" }, { "Ref": "SubnetPublicC" } ]
+      }
+    }
+  }
+}
