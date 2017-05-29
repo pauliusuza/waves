@@ -1,6 +1,6 @@
 #! /bin/bash
 
-# techypaul @ https://rated.gd, tips: 3P6gZSf9NNiDHBMoWW58kcPY5AwaWqoFjnW
+# techypaul @ https://rated.gd
 
 aws cloudformation create-stack \
   --stack-name waves-node \
@@ -20,4 +20,6 @@ aws cloudformation create-stack \
     ParameterKey=S3WavesBucketName,ParameterValue=<your new S3 bucket name> \
     ParameterKey=S3WavesTempBucketName,ParameterValue=<your new S3 bucket name> \
     ParameterKey=WavesJarURL,ParameterValue=https://github.com/wavesplatform/Waves/releases/download/v0.6.6/waves-0.6.6.jar \
-    ParameterKey=WavesJarFile,ParameterValue=waves-0.6.6.jar
+    ParameterKey=WavesJarFile,ParameterValue=waves-0.6.6.jar \
+    ParameterKey=WavesJavaOldVersion,ParameterValue=java-1.7.0 \
+    ParameterKey=WavesJavaNewVersion,ParameterValue=java-1.8.0
